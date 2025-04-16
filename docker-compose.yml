@@ -1,0 +1,26 @@
+version: "3.7"
+
+services:
+  app:
+    build: .
+    container_name: node_app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    env_file:
+      - ./config/config.env  # 👈 Ensure this file exists and has DB_* variables
+    volumes:
+      - .:/usr/src/app
+    depends_on:
+      - db
+
+  db:
+    image: postgres:13
+    container_name: postgres_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pavithrasekar
+      POSTGRES_DB: task_management
+    ports:
+      - "5432:5432"

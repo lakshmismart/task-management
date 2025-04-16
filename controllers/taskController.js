@@ -1,5 +1,5 @@
 const { pool } = require('../config/db');
-
+const sendEmail = require('../utils/mailer');
 
 exports.createTask = async (req, res, next) => {
  try {
@@ -284,4 +284,147 @@ exports.sortTasks = async (req, res, next) => {
    next(err);
  }
 };
+
+
+
+
+exports.assignTask = async (req, res, next) => {
+  try {
+    const taskId = req.body.task_id;
+    const userIds = req.body.user_ids;
+
+    if (!taskId || !Array.isArray(userIds)) {
+      return res.status(400).json({ message: 'task_id and user_ids (as array) are required' });
+    }
+
+    const taskResult = await pool.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
+    if (taskResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    const task = taskResult.rows[0];
+    const notifiedUsers = [];
+
+    for (let userId of userIds) {
+      const userCheck = await pool.query('SELECT id, email, name FROM users WHERE id = $1', [userId]);
+      if (userCheck.rows.length === 0) continue;
+
+      const user = userCheck.rows[0];
+
+      // Insert notification
+      await pool.query(
+        'INSERT INTO notifications (user_id, task_id, message) VALUES ($1, $2, $3)',
+        [user.id, taskId, `You have been assigned a new task: ${task.name}`]
+      );
+
+      // Send email
+      const subject = `New Task Assigned: ${task.name}`;
+      const message = `Hi ${user.name},\n\nYou have been assigned a new task: "${task.name}".\n\nPlease check your dashboard.\n\nThanks,\nTask Manager Team`;
+      await sendEmail(user.email, subject, message);
+
+      notifiedUsers.push({ id: user.id, email: user.email });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Task assigned and email notifications sent',
+      users_notified: notifiedUsers
+    });
+
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+
+// Get user productivity (tasks completed per day/week/month)
+exports.getUserProductivity = async (req, res, next) => {
+  try {
+    const userId = req.userId; // assuming userId comes from auth middleware
+    const { period = 'daily' } = req.query; // 'day', 'week', or 'month'
+    const dateNow = new Date();
+
+    // Determine date range based on period
+    let startDate;
+    if (period === 'weekly') {
+      const currentDayOfWeek = dateNow.getDay();
+      startDate = new Date(dateNow.setDate(dateNow.getDate() - currentDayOfWeek)); // Start of the current week (Sunday)
+    } else if (period === 'monthly') {
+      startDate = new Date(dateNow.setDate(1)); // Start of the current month
+    } else {
+      startDate = new Date(dateNow.setHours(0, 0, 0, 0)); // Start of the current day
+    }
+
+    const endDate = new Date(); // End of the current period
+
+    // Query to get the number of tasks completed by the user in the given period
+    const result = await pool.query(
+      'SELECT COUNT(*) FROM tasks WHERE user_id = $1 AND status = $2 AND recurrence = $3 AND created_at BETWEEN $4 AND $5',
+      [userId, 'completed', period, startDate, endDate]
+    );
+
+    const completedTasks = result.rows[0].count;
+
+    // If no tasks are completed, send a warning message
+    if (completedTasks == 0) {
+      return res.status(200).json({
+        success: true,
+        message: `No tasks completed ${period === 'weekly' ? 'this week' : period === 'monthly' ? 'this month' : 'today'}`,
+        completedTasks,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Tasks completed ${period === 'weekly' ? 'this week' : period === 'monthly' ? 'this month' : 'today'}`,
+      completedTasks,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+
+
+
+// Get project progress (completed tasks vs total tasks)
+exports.getProjectProgress = async (req, res, next) => {
+  try {
+    const projectId = req.params.projectId;
+
+    // Query to get the total number of tasks in the project
+    const totalTasksResult = await pool.query(
+      'SELECT COUNT(*) FROM tasks WHERE project_id = $1',
+      [projectId]
+    );
+
+    // Query to get the number of completed tasks in the project
+    const completedTasksResult = await pool.query(
+      'SELECT COUNT(*) FROM tasks WHERE project_id = $1 AND status = $2',
+      [projectId, 'completed']
+    );
+
+    const totalTasks = totalTasksResult.rows[0].count;
+    const completedTasks = completedTasksResult.rows[0].count;
+
+    res.status(200).json({
+      success: true,
+      message: 'Project progress',
+      projectProgress: {
+        totalTasks,
+        completedTasks,
+        progressPercentage: totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+
+
+
+
+
 

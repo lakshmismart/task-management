@@ -3,13 +3,15 @@ const dotenv = require('dotenv');
 
 dotenv.config({ path: './config/config.env' });
 
+// config/db.js or wherever you're initializing the database
 const pool = new Pool({
-  host: process.env.PG_HOST,
-  port: process.env.PG_PORT,
-  user: process.env.PG_USER,
-  password: process.env.PG_PASSWORD,
-  database: process.env.PG_DATABASE,
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || 'pavithrasekar',
+  database: process.env.DB_NAME || 'task_management'
 });
+
 
 const connectDB = async () => {
   try {
